@@ -1,62 +1,100 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.animation import FuncAnimation
 from matplotlib.widgets import Slider
+from matplotlib.animation import FuncAnimation
+from numba import njit
 
-# Parameters
-num_particles = 100  # Number of particles
-num_steps = 500      # Number of time steps
-initial_step_size = 0.01  # Initial step size for each movement
-x_limits = (-1, 1)   # X-axis limits
-y_limits = (-1, 1)   # Y-axis limits
+# Constants
+NUM_PARTICLES = 50  # Reduced number for better visualization
+BOX_SIZE = 10.0
+PARTICLE_RADIUS = 0.1
+DT = 0.01
+MASS = 1.0  # Assume all particles have the same mass
 
-# Initialize particle positions
-particles = np.random.uniform(low=-1, high=1, size=(num_particles, 2))
+# Initialize particle positions and velocities
+positions = np.random.uniform(PARTICLE_RADIUS, BOX_SIZE - PARTICLE_RADIUS, (NUM_PARTICLES, 2))
+velocities = np.random.normal(0, 1, (NUM_PARTICLES, 2))  # Random initial velocities
 
-# Create the figure and axis
-plt.style.use('dark_background')  # Set dark background
-fig, ax = plt.subplots(figsize=(8, 8))
-plt.subplots_adjust(left=0.1, bottom=0.2)  # Adjust layout for slider
-ax.set_xlim(x_limits)
-ax.set_ylim(y_limits)
-ax.set_aspect('equal')
-ax.grid(True, linestyle='--', alpha=0.5)
-ax.set_title("2D Brownian Motion Simulation")
-
-# Scatter plot for particles
-scatter = ax.scatter(particles[:, 0], particles[:, 1], c='cyan', s=10)
-
-# Add slider for kinetic energy (step size)
-ax_step = plt.axes([0.25, 0.1, 0.65, 0.03], facecolor='lightgray')
-step_slider = Slider(ax_step, 'Kinetic Energy', 0.001, 0.1, valinit=initial_step_size, valstep=0.001)
-
-# Function to update particle positions
-def update(frame):
-    global particles
-    # Get current step size from the slider
-    step_size = step_slider.val
+@njit
+def update_positions(positions, velocities, temperature):
+    # Add random motion scaled by temperature
+    if temperature > 0:
+        velocities += np.sqrt(temperature) * np.random.normal(0, 1, velocities.shape) * DT
+    else:
+        # At 0 K, particles stop moving
+        velocities = np.zeros_like(velocities)
     
-    # Generate random steps for each particle
-    steps = np.random.normal(loc=0, scale=step_size, size=(num_particles, 2))
-    particles += steps
+    # Update positions
+    positions += velocities * DT
     
-    # Ensure particles stay within the boundaries
-    particles = np.clip(particles, x_limits[0], x_limits[1])
+    # Handle collisions with walls
+    for i in range(NUM_PARTICLES):
+        for j in range(2):
+            if positions[i, j] < PARTICLE_RADIUS:
+                positions[i, j] = PARTICLE_RADIUS
+                velocities[i, j] *= -1  # Reverse velocity on wall collision
+            elif positions[i, j] > BOX_SIZE - PARTICLE_RADIUS:
+                positions[i, j] = BOX_SIZE - PARTICLE_RADIUS
+                velocities[i, j] *= -1  # Reverse velocity on wall collision
     
-    # Update scatter plot data
-    scatter.set_offsets(particles)
-    return scatter,
+    # Handle collisions between particles (elastic collisions)
+    for i in range(NUM_PARTICLES):
+        for j in range(i + 1, NUM_PARTICLES):
+            # Calculate distance between particles
+            delta_pos = positions[i] - positions[j]
+            dist = np.linalg.norm(delta_pos)
+            
+            # Check if particles are colliding
+            if dist < 2 * PARTICLE_RADIUS:
+                # Normalize the distance vector
+                normal = delta_pos / dist
+                
+                # Relative velocity
+                relative_velocity = velocities[i] - velocities[j]
+                
+                # Calculate the velocity along the normal (dot product)
+                velocity_along_normal = np.dot(relative_velocity, normal)
+                
+                # Only proceed if particles are moving towards each other
+                if velocity_along_normal < 0:
+                    # Calculate impulse (elastic collision with equal masses)
+                    impulse = (2 * MASS * velocity_along_normal) / (2 * MASS)
+                    
+                    # Update velocities
+                    velocities[i] -= impulse * normal
+                    velocities[j] += impulse * normal
+    
+    return positions, velocities
+
+# Set up the plot
+fig, ax = plt.subplots()
+plt.subplots_adjust(left=0.1, bottom=0.25)
+scat = ax.scatter(positions[:, 0], positions[:, 1], s=20)
+ax.set_xlim(0, BOX_SIZE)
+ax.set_ylim(0, BOX_SIZE)
+
+# Add a slider for temperature
+ax_temp = plt.axes([0.1, 0.1, 0.8, 0.03])
+temp_slider = Slider(ax_temp, 'Temperature (K)', 0, 500, valinit=250)  # Range: 0 K to 500 K
+
+# Global variable to store temperature
+current_temperature = temp_slider.val
+
+# Function to update temperature when slider is changed
+def update_temperature(val):
+    global current_temperature
+    current_temperature = temp_slider.val
+
+temp_slider.on_changed(update_temperature)
+
+# Animation function
+def animate(frame):
+    global positions, velocities
+    positions, velocities = update_positions(positions, velocities, current_temperature)
+    scat.set_offsets(positions)
+    return scat,
 
 # Create animation
-ani = FuncAnimation(fig, update, frames=num_steps, interval=50, blit=True)
+ani = FuncAnimation(fig, animate, frames=200, interval=50, blit=True)
 
-# Function to update step size when slider is changed
-def update_step_size(val):
-    # The animation will automatically use the new step size in the `update` function
-    pass
-
-# Attach the update function to the slider
-step_slider.on_changed(update_step_size)
-
-# Show the plot
 plt.show()
