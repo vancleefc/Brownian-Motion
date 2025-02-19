@@ -5,7 +5,7 @@ from matplotlib.animation import FuncAnimation
 from numba import njit
 
 # Constants
-NUM_PARTICLES = 200  # Doubled number of particles
+NUM_PARTICLES = 200
 BOX_SIZE = 10.0
 PARTICLE_RADIUS = 0.1
 DT = 0.01
